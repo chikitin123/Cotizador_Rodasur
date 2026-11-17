@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cotizador Rápido</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans pb-20">
+
+  <header class="bg-blue-700 text-white p-4 shadow-md sticky top-0 z-10">
+    <div class="max-w-4xl mx-auto flex justify-between items-center">
+      <h1 class="text-lg font-bold tracking-wide">Cotizador Comercial</h1>
+      <select id="tipoCliente" onchange="recalcular()" class="bg-blue-800 text-white text-sm rounded px-3 py-1.5 border border-blue-500">
+        <option value="NORMAL">Cliente Normal</option>
+        <option value="MAYORISTA">Mayorista</option>
+      </select>
+    </div>
+  </header>
+
+  <main class="max-w-4xl mx-auto p-4 space-y-4">
+    <div class="bg-white p-4 rounded-xl shadow-sm relative">
+      <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Buscar por Código, Marca o Descripción</label>
+      <input type="text" id="buscador" placeholder="Ej. ROD-6204 o SKF..." 
+             oninput="buscarProductos()"
+             class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500">
+      <div id="resultadosBusqueda" class="hidden absolute left-4 right-4 bg-white border border-slate-200 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto z-20"></div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <div class="p-3 bg-slate-50 border-b flex justify-between items-center">
+        <span class="font-semibold text-sm text-slate-700">Detalle de Cotización</span>
+        <button onclick="limpiarLista()" class="text-xs text-red-600 hover:underline">Limpiar todo</button>
+      </div>
+      <div id="listaCotizacion" class="divide-y divide-slate-100">
+        <p class="p-6 text-center text-slate-400 text-sm">Busca y selecciona productos arriba para cotizar.</p>
+      </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-xl shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
+      <div>
+        <span class="text-xs text-slate-500 uppercase block">Total Cotización (Inc. IGV)</span>
+        <span id="totalGeneral" class="text-2xl font-bold text-blue-700">S/ 0.00</span>
+      </div>
+      <button onclick="copiarWhatsApp()" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-5 py-3 rounded-lg shadow transition">
+        Copiar para WhatsApp
+      </button>
+    </div>
+  </main>
+
+  <script>
+    const API_URL = "http://localhost:8000/api";
+    let carrito = [];
+    let ultimaCotizacion = [];
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js');
+    }
+
+    async function buscarProductos() {
+      const q = document.getElementById('buscador').value.trim();
+      const box = document.getElementById('resultadosBusqueda');
+      if (q.length < 2) { box.classList.add('hidden'); return; }
+
+      const res = await fetch(`${API_URL}/buscar?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+
+      if (data.length === 0) {
+        box.innerHTML = `<div class="p-3 text-sm text-slate-400">Sin resultados</div>`;
+      } else {
+        box.innerHTML = data.map(p => `
+          <div onclick="agregarItem('${p.Codigo}', '${p.Marca}')" 
+               class="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 flex justify-between items-center">
+            <div>
+              <div class="font-bold text-sm text-slate-800">${p.Codigo} <span class="text-xs bg-slate-200 px-1.5 py-0.5 rounded">${p.Marca}</span></div>
+              <div class="text-xs text-slate-500">${p.Descripcion}</div>
+            </div>
+            <span class="text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded">Stock: ${p.StockLima + p.StockProvincia}</span>
+          </div>
+        `).join('');
+      }
+      box.classList.remove('hidden');
+    }
+
+    function agregarItem(codigo, marca) {
+      document.getElementById('resultadosBusqueda').classList.add('hidden');
+      document.getElementById('buscador').value = '';
+      
+      const existe = carrito.find(i => i.codigo === codigo && i.marca === marca);
+      if (existe) {
+        existe.cantidad += 1;
+      } else {
+        carrito.push({ codigo, marca, cantidad: 1 });
+      }
+      recalcular();
+    }
+
+    function cambiarCantidad(index, nuevaCant) {
+      const cant = parseInt(nuevaCant);
+      if (cant <= 0 || isNaN(cant)) {
+        carrito.splice(index, 1);
+      } else {
+        carrito[index].cantidad = cant;
+      }
+      recalcular();
+    }
+
+    function limpiarLista() {
+      carrito = [];
+      recalcular();
+    }
+
+    async function recalcular() {
+      const contenedor = document.getElementById('listaCotizacion');
+      if (carrito.length === 0) {
+        contenedor.innerHTML = `<p class="p-6 text-center text-slate-400 text-sm">Busca y selecciona productos arriba para cotizar.</p>`;
+        document.getElementById('totalGeneral').innerText = "S/ 0.00";
+        ultimaCotizacion = [];
+        return;
+      }
+
+      const tipo_cliente = document.getElementById('tipoCliente').value;
+      const res = await fetch(`${API_URL}/cotizar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: carrito, tipo_cliente })
+      });
+      const data = await res.json();
+      ultimaCotizacion = data.items;
+
+      contenedor.innerHTML = data.items.map((item, idx) => `
+        <div class="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div class="flex-1">
+            <div class="font-bold text-sm">${item.codigo} <span class="text-xs font-normal text-slate-500">(${item.marca})</span></div>
+            <div class="text-xs text-slate-600">${item.descripcion}</div>
+            <div class="text-xs text-slate-400">Stock disp: ${item.stock_total} | P.Unit: S/ ${item.precio_unit.toFixed(2)}</div>
+          </div>
+          <div class="flex items-center justify-between sm:justify-end gap-3">
+            <input type="number" min="1" value="${item.cantidad}" 
+                   onchange="cambiarCantidad(${idx}, this.value)"
+                   class="w-16 border rounded px-2 py-1 text-center text-sm font-semibold">
+            <div class="w-24 text-right font-bold text-slate-800">S/ ${item.subtotal.toFixed(2)}</div>
+          </div>
+        </div>
+      `).join('');
+
+      document.getElementById('totalGeneral').innerText = `S/ ${data.total_con_igv.toFixed(2)}`;
+    }
+
+    function copiarWhatsApp() {
+      if (ultimaCotizacion.length === 0) return alert("Agrega productos primero.");
+      let texto = "*COTIZACIÓN DE PRODUCTOS*\n\n";
+      ultimaCotizacion.forEach(i => {
+        texto += `• *${i.codigo}* (${i.marca}) - Cant: ${i.cantidad} | P.U: S/ ${i.precio_unit.toFixed(2)} | Sub: S/ ${i.subtotal.toFixed(2)}\n`;
+      });
+      texto += `\n*TOTAL (Inc. IGV): ${document.getElementById('totalGeneral').innerText}*`;
+      navigator.clipboard.writeText(texto);
+      alert("Cotización copiada. Lista para pegar en WhatsApp.");
+    }
+  </script>
+</body>
+</html>
