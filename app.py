@@ -22,7 +22,7 @@ def calcular_cotizacion(precio_lista: float, cantidad: int, descuento_pct: float
     return round(precio_unitario_final, 2), round(total, 2)
 
 st.title("⚙️ Cotizador de Productos")
-st.caption("Búsqueda y sugerencias unificadas para celular")
+st.caption("Búsqueda y cotización rápida en una sola barra")
 
 @st.cache_data(ttl=60)
 def obtener_lista_productos():
@@ -37,54 +37,42 @@ productos_totales = obtener_lista_productos()
 if not productos_totales:
     st.error("⚠️ La base de datos está vacía. Ejecuta tu script de subida de Excel.")
 else:
-    # 📌 CONTENEDOR SUPERIOR UNIFICADO Y FIJO
+    # Mapeamos cada opción legible al código real del producto
+    opciones_map = {
+        f"{item['codigo']} — {item['marca']} ({item['descripcion'][:40]}...)": item['codigo']
+        for item in productos_totales
+    }
+    lista_opciones = ["-- Toca aquí para escribir o buscar el producto --"] + list(opciones_map.keys())
+
+    # 📌 CONTENEDOR SUPERIOR FIJO (Una sola barra de búsqueda inteligente)
     with st.container(border=True):
-        st.markdown("### 🔍 Buscador Inteligente")
-        
-        # 1. Barra de texto libre (Activa el teclado del celular al instante)
-        busqueda_texto = st.text_input("Escribe el Código, Marca o Descripción:", placeholder="Ej. 6203, SKF, Faja...", key="input_buscador_unificado")
-
-        # 2. Filtrado dinámico de sugerencias basado en lo que escribe el usuario
-        opciones_map = {}
-        lista_sugerencias = ["-- Escribe arriba para ver sugerencias --"]
-
-        if busqueda_texto and len(busqueda_texto.strip()) > 0:
-            texto_lower = busqueda_texto.strip().lower()
-            for item in productos_totales:
-                etiqueta = f"{item['codigo']} — {item['marca']} ({item['descripcion'][:40]}...)"
-                if (texto_lower in item['codigo'].lower() or 
-                    texto_lower in item['marca'].lower() or 
-                    texto_lower in item['descripcion'].lower()):
-                    opciones_map[etiqueta] = item['codigo']
-                    lista_sugerencias.append(etiqueta)
-
-        # 3. Selector que muestra las sugerencias encontradas al vuelo
-        producto_seleccionado_label = st.selectbox(
-            "📋 Selecciona de la lista de resultados:",
-            options=lista_sugerencias,
-            key="select_sugerencias_vuelo"
+        # Esta barra única permite escribir y filtra/autocompleta las sugerencias al instante tanto en PC como en celular
+        seleccion_usuario = st.selectbox(
+            "🔍 Buscar Producto (Código, Marca o Descripción)",
+            options=lista_opciones,
+            index=0
         )
 
         col3, col4, col5 = st.columns([1, 1, 1])
         with col3:
-            cantidad = st.number_input("Cantidad", min_value=1, value=1, step=1, key="cant_val")
+            cantidad = st.number_input("Cantidad", min_value=1, value=1, step=1)
         with col4:
-            descuento = st.number_input("Dscto (%)", min_value=0.0, max_value=50.0, value=0.0, step=1.0, key="desc_val")
+            descuento = st.number_input("Dscto (%)", min_value=0.0, max_value=50.0, value=0.0, step=1.0)
         with col5:
             st.write("")
             st.write("")
-            con_igv = st.checkbox("Incluir IGV (18%)", value=True, key="igv_val")
+            con_igv = st.checkbox("Incluir IGV (18%)", value=True)
 
-        # 🚀 BOTÓN COTIZAR FIJO
+        # 🚀 BOTÓN COTIZAR
         btn_cotizar = st.button("🚀 Cotizar Producto", type="primary", use_container_width=True)
 
     # 📌 ZONA DE RESULTADOS INFERIOR
     if btn_cotizar:
-        if producto_seleccionado_label == "-- Escribe arriba para ver sugerencias --" or producto_seleccionado_label not in opciones_map:
-            st.warning("⚠️ Por favor escribe en la barra, busca y selecciona un producto válido de las sugerencias.")
+        if seleccion_usuario == "-- Toca aquí para escribir o buscar el producto --":
+            st.warning("⚠️ Por favor selecciona un producto de la barra de búsqueda.")
         else:
-            codigo_real = opciones_map[producto_seleccionado_label]
-            producto_encontrado = next((p for p in productos_totales if p["codigo"] == codigo_real), None)
+            codigo_seleccionado = opciones_map[seleccion_usuario]
+            producto_encontrado = next((p for p in productos_totales if p["codigo"] == codigo_seleccionado), None)
 
             if not producto_encontrado:
                 st.error("❌ Producto no encontrado.")
@@ -107,4 +95,4 @@ else:
                         if cantidad > 1:
                             st.metric(label=f"Total ({cantidad} und.)", value=f"{moneda} {p_total:,.2f}")
     else:
-        st.info("💡 **Uso rápido en campo:** Toca la barra de texto (se abrirá el teclado), escribe el código o marca, selecciona la sugerencia abajo, ajusta la cantidad y presiona **Cotizar Producto**.")
+        st.info("💡 **Modo de uso:** Toca la barra superior, escribe parte del código o marca para filtrar, selecciona el producto, ajusta la cantidad y presiona **Cotizar Producto**.")
